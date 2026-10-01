@@ -11,7 +11,9 @@ export const isQA = process.env.DT_PROFILE === 'qa';
 export const ports = { rpc: 9655, api: 3004, web: 5176 };
 export const runtime = path.join(root, '.runtime-classic');
 fs.mkdirSync(runtime, { recursive: true });
-export const provider = new ethers.JsonRpcProvider(`http://127.0.0.1:${ports.rpc}`, undefined, { cacheTimeout: -1 });
+if (process.env.NODE_ENV === 'production' && !process.env.RPC_URL) throw new Error('RPC_URL environment variable is required in production.');
+export const provider = new ethers.JsonRpcProvider(process.env.RPC_URL || `http://127.0.0.1:${ports.rpc}`, undefined, { cacheTimeout: -1 });
+export async function getSigner(address: string) { if(process.env.DEPARTMENT_PRIVATE_KEY && (address === data?.department || address === data?.issuer)) return new ethers.Wallet(process.env.DEPARTMENT_PRIVATE_KEY, provider); return provider.getSigner(address); }
 provider.pollingInterval = 250;
 export const json = (v: any) => JSON.stringify(v, (_, x) => typeof x === 'bigint' ? x.toString() : x, 2);
 const stateFile = path.join(runtime, 'deployment.json');
@@ -30,10 +32,10 @@ export async function checkpoint(caseId: string) {
   const leaves = [...data.leaves, leaf];
   const log = new MerkleLog(leaves);
   const cp = { institutionId: data.institutionId, treeSize: log.getSize(), rootHash: log.getRoot(), timestamp: (await provider.getBlock('latest'))!.timestamp };
-  const anchor = contract('CheckpointAnchor', await provider.getSigner(data.department));
+  const anchor = contract('CheckpointAnchor', await getSigner(data.department));
   const hash = await anchor.hashCheckpoint(cp);
-  const institutionSig = await (await provider.getSigner(data.issuer)).signMessage(ethers.getBytes(hash));
-  const witnessSig = await (await provider.getSigner(data.witness)).signMessage(ethers.getBytes(hash));
+  const institutionSig = await (await getSigner(data.issuer)).signMessage(ethers.getBytes(hash));
+  const witnessSig = await (await getSigner(data.witness)).signMessage(ethers.getBytes(hash));
   const tx = await anchor.anchorCheckpoint(cp, institutionSig, [witnessSig]);
   const mined = await tx.wait();
   if (mined.status !== 1) throw new Error('Checkpoint transaction reverted.');
@@ -47,7 +49,7 @@ export async function disposition(caseId: string, file: any, disposition = 0, re
   const digest = ethers.TypedDataEncoder.hash(file.domain, DT_TYPES, file.receipt);
   const text = canonicalDisposition(caseId, digest, disposition, reason);
   const hash = ethers.keccak256(ethers.toUtf8Bytes(text));
-  const tx = await contract('DisputeManager', await provider.getSigner(data.department)).recordDisposition(caseId, digest, hash, disposition);
+  const tx = await contract('DisputeManager', await getSigner(data.department)).recordDisposition(caseId, digest, hash, disposition);
   await tx.wait();
   data.dispositions[hash] = JSON.parse(text);
   save();
@@ -55,6 +57,28 @@ export async function disposition(caseId: string, file: any, disposition = 0, re
 }
 export async function initialize() {
   const network = await provider.getNetwork();
+  if (process.env.NODE_ENV === 'production') {
+    if (!process.env.KEY_REGISTRY_ADDRESS || !process.env.CHECKPOINT_ANCHOR_ADDRESS || !process.env.DISPUTE_MANAGER_ADDRESS) {
+      throw new Error('KEY_REGISTRY_ADDRESS, CHECKPOINT_ANCHOR_ADDRESS, and DISPUTE_MANAGER_ADDRESS are required in production.');
+    }
+    data = {
+      version: 1, chainId: Number(process.env.CHAIN_ID), chainName: 'Production',
+      deploymentBlock: 0, deploymentBlockHash: ethers.ZeroHash, codeHash: ethers.ZeroHash,
+      contracts: {
+        KeyRegistry: { address: process.env.KEY_REGISTRY_ADDRESS, abi: artifact('KeyRegistry').abi },
+        CheckpointAnchor: { address: process.env.CHECKPOINT_ANCHOR_ADDRESS, abi: artifact('CheckpointAnchor').abi },
+        DisputeManager: { address: process.env.DISPUTE_MANAGER_ADDRESS, abi: artifact('DisputeManager').abi }
+      },
+      issuer: new ethers.Wallet(process.env.DEPARTMENT_PRIVATE_KEY!).address,
+      department: new ethers.Wallet(process.env.DEPARTMENT_PRIVATE_KEY!).address,
+      witness: process.env.WITNESS_ADDRESS || ethers.ZeroAddress,
+      applicant: ethers.ZeroAddress,
+      institutionId: ethers.id('DecisionTrail:Public Service Department'),
+      serviceId: ethers.id('DecisionTrail:Evidence accountability'),
+      cases: [], leaves: [], checkpoints: [], receipts: {}, dispositions: {}, submissions: {}
+    };
+    return;
+  }
   if (network.chainId !== 31337n) throw new Error('DecisionTrail only runs against local Hardhat chain 31337.');
   if (fs.existsSync(stateFile)) {
     data = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
@@ -86,18 +110,18 @@ export async function createFixture(label: string, scenario: string, commitments
   const caseId = ethers.encodeBytes32String(label);
   const holderSalt = ethers.id(`decisiontrail:synthetic:${label}`);
   const holderCommitment = ethers.solidityPackedKeccak256(['address', 'bytes32'], [data.applicant, holderSalt]);
-  const manager = contract('DisputeManager', await provider.getSigner(data.department));
+  const manager = contract('DisputeManager', await getSigner(data.department));
   await (await manager.openCase(caseId, data.institutionId, data.serviceId, holderCommitment)).wait();
   const receipt = { caseId, institutionId: data.institutionId, serviceId: data.serviceId, docCommitments: commitments || [1, 2, 3].map(n => ethers.sha256(ethers.toUtf8Bytes(`SYNTHETIC ${label} evidence item ${n}`))), policyHash: ethers.id('DecisionTrail synthetic receipt accountability v1'), timestamp: (await provider.getBlock('latest'))!.timestamp, logIndex: 17 + data.cases.length, holderCommitment };
   const domain = { ...DT_DOMAIN, chainId: 31337, verifyingContract: data.contracts.DisputeManager.address };
-  const file = { schema: 'decisiontrail/receipt-v1', synthetic: true, domain, receipt, holderSalt, signature: await (await provider.getSigner(data.issuer)).signTypedData(domain, DT_TYPES, receipt) };
+  const file = { schema: 'decisiontrail/receipt-v1', synthetic: true, domain, receipt, holderSalt, signature: await (await getSigner(data.issuer)).signTypedData(domain, DT_TYPES, receipt) };
   data.receipts[caseId] = file;
   data.cases.push({ caseId, label, scenario, description: scenario === 'D' ? 'Multi-format evidence · registered' : scenario === 'A' ? 'Sealed · omitted receipt' : scenario === 'B' ? 'Reopened · unresolved receipt' : 'Resolved · resealed audit' });
   save();
   const cp = await checkpoint(caseId);
   await (await manager.sealRound(caseId, cp.rootHash, cp.treeSize, cp.leafIndex, cp.inclusionProof)).wait();
   if (scenario !== 'A') {
-    await (await manager.connect(await provider.getSigner(data.applicant)).getFunction('registerReceipt')(receipt, file.signature, holderSalt)).wait();
+    await (await manager.connect(await getSigner(data.applicant)).getFunction('registerReceipt')(receipt, file.signature, holderSalt)).wait();
     if (scenario === 'C') {
       await disposition(caseId, file);
       const next = await checkpoint(caseId);
@@ -185,7 +209,7 @@ export async function acknowledgeEvidence(id: string, holder = data.applicant) {
   const { info, bytes } = evidenceBytes(id);
   if (ethers.sha256(bytes) !== info.sha256) throw new Error('Stored file integrity check failed. Acknowledgement was not signed.');
   if (info.status === 'ACKNOWLEDGED') return { item: info, receipt: data.receipts[info.caseId] };
-  const department = await provider.getSigner(data.department);
+  const department = await getSigner(data.department);
   const manager = contract('DisputeManager', department);
   const salt = ethers.id(`DecisionTrail local acknowledgement ${id}`);
   const commitment = ethers.solidityPackedKeccak256(['address', 'bytes32'], [holder, salt]);
