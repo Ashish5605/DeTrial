@@ -1,0 +1,15 @@
+node_modules
+.env
+artifacts
+cache
+typechain-types
+coverage
+dist
+.runtime-classic/
+.runtime/
+.runtime-qa/
+.secure/
+.secure-qa/
+fixtures/*.json
+test-results/
+.qa-results/

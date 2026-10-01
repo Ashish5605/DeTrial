@@ -1,0 +1,15 @@
+import React, { useEffect, useState } from 'react';
+import { Button, CopyValue, ErrorBox, Progress } from './ui';
+import { PreparedFile, prepareFile } from './fileVerification';
+import FilePreview from './FilePreview';
+import { humanSize } from '../../../shared/formats';
+
+export default function AcknowledgementQueue({ onAcknowledged }: { onAcknowledged: () => Promise<void> }) {
+  const [items, setItems] = useState<any[]>([]), [error, setError] = useState(''), [progress, setProgress] = useState(''), [preview, setPreview] = useState<PreparedFile | null>(null);
+  async function refresh() { const res = await fetch('/api/submissions'); const data = await res.json(); if (!res.ok) throw new Error(data.error); setItems(data.filter((i: any) => i.status === 'PENDING')); }
+  useEffect(() => { let active = true; const poll = () => refresh().catch(e => { if (active) setError(e.message); }); void poll(); const timer = setInterval(poll, 5000); return () => { active = false; clearInterval(timer); }; }, []);
+  async function inspect(item: any) { setProgress('Reading off-chain evidence...'); setError(''); try { const res = await fetch(`/api/evidence/${item.id}`); if (!res.ok) throw new Error('Evidence could not be read.'); const file = await prepareFile(new File([await res.blob()], item.name, { type: item.mime }), setProgress); if (file.sha256 !== item.sha256) throw new Error('Stored evidence hash changed. Do not acknowledge this file.'); setPreview(file); } catch (e: any) { setError(e.message); } finally { setProgress(''); } }
+  async function acknowledge(item: any) { setProgress('Opening application and signing acknowledgement...'); setError(''); try { const res = await fetch(`/api/acknowledge/${item.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(30000) }); const data = await res.json(); if (!res.ok) throw new Error(data.error); await refresh(); await onAcknowledged(); setPreview(null); } catch (e: any) { setError(e.message); } finally { setProgress(''); } }
+  if (!items.length && !error && !progress) return null;
+  return <section className="acknowledgement-queue"><span className="section-kicker">OFF-CHAIN INBOX · LOCAL DEMO</span><h2>Acknowledge submitted evidence</h2><p>Review the file, then sign its exact SHA-256 commitment with the local department account. The applicant must register the resulting receipt. This is a demo acknowledgement, not verification of the original government issuer.</p>{items.map(item => <div className="pending-evidence" key={item.id}><strong>{item.name}</strong><span>{item.format} · {humanSize(item.size)}</span><CopyValue value={item.sha256} full/><div><Button kind="secondary" disabled={!!progress} onClick={() => inspect(item)}>Review file</Button><Button disabled={!!progress || preview?.sha256 !== item.sha256} onClick={() => acknowledge(item)}>Acknowledge file</Button></div></div>)}{preview && <FilePreview file={preview}/>} {progress && <Progress text={progress}/>} {error && <ErrorBox message={error}/>}</section>;
+}

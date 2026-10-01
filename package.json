@@ -1,0 +1,55 @@
+{
+  "name": "decisiontrail-classic",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*"
+  ],
+  "description": "DecisionTrail classic local receipt accountability demo",
+  "main": "index.js",
+  "scripts": {
+    "start": "node -r ts-node/register/transpile-only server/launch.ts",
+    "dev": "npm start",
+    "build": "npm run build:verifier && vite build --config apps/pwa/vite.config.mts",
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:integration": "npm run test:browser",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p apps/pwa/tsconfig.json",
+    "seed": "node -r ts-node/register/transpile-only server/seed.ts",
+    "test:browser": "node scripts/classic-smoke.cjs",
+    "test:accessibility": "npm run test:browser",
+    "build:verifier": "node scripts/build-verifier.cjs",
+    "prestart": "npm run build:verifier"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "^5.6.1",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^20.19.43",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "dotenv": "^16.6.1",
+    "ethers": "^6.17.0",
+    "hardhat": "^2.29.1",
+    "solc": "0.8.24",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.3"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "lucide-react": "^1.48.0",
+    "pdfjs-dist": "^6.3.289",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}
