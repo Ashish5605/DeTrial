@@ -56,7 +56,7 @@ export default function ArtifactImporter({ config, rpc, selected, label, onAccep
   async function fixture(name?: string) {
     setError(''); setProgress('Reading receipt...');
     try {
-      const response = await fetch(name ? `/api/samples/${name}` : `/api/receipt/${selected}`);
+      const response = await fetch((import.meta.env.VITE_API_URL || '') + (name ? `/api/samples/${name}` : `/api/receipt/${selected}`));
       if (!response.ok) throw new Error('Sample receipt is unavailable. Retry after starting the local service.');
       await choose(new File([await response.blob()], name || `DecisionTrail-${label}.json`, { type: name ? response.headers.get('content-type') || '' : 'application/json' }));
     } catch (e: any) { setError(e.message); setProgress(''); }
@@ -65,7 +65,7 @@ export default function ArtifactImporter({ config, rpc, selected, label, onAccep
     if (!file) return;
     setProgress('Saving evidence off-chain...'); setError('');
     try {
-      const response = await fetch(`/api/submissions?name=${encodeURIComponent(file.info.name)}`, { method: 'POST', headers: { 'Content-Type': file.info.mime }, body: file.original, signal: AbortSignal.timeout(20000) });
+      const response = await fetch((import.meta.env.VITE_API_URL || '') + `/api/submissions?name=${encodeURIComponent(file.info.name)}`, { method: 'POST', headers: { 'Content-Type': file.info.mime }, body: file.original, signal: AbortSignal.timeout(20000) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error);
       if (data.sha256 !== file.sha256) throw new Error('The local upload fingerprint does not match. Please retry.');
       setSubmission(data.status === 'ACKNOWLEDGED' ? 'Already acknowledged. Recheck the file to retrieve its signed receipt.' : 'Saved off-chain. Switch to Department → Audit control to review and acknowledge this file, then return here and recheck.');
@@ -79,7 +79,7 @@ export default function ArtifactImporter({ config, rpc, selected, label, onAccep
       <span><Upload size={27}/></span><strong>{drag ? 'Release to verify your file' : file ? 'Choose another file' : 'Drop your receipt here'}</strong><p>or <u>choose a file</u></p><small>PDF · PNG · JPG / JPEG · JSON</small><small>Documents up to 10 MB · JSON receipts up to 128 KB</small>
     </button>
     {!file && <div className="sample-import"><span>Issued for this case</span><Button kind="secondary" disabled={busy} onClick={() => fixture()}>Verify issued receipt {label} <ArrowRight size={16}/></Button></div>}
-    {!config.productMode && <details className="sample-documents"><summary>Try a committed sample document</summary><p>These synthetic files are acknowledged by receipt R20 and registered on the local chain.</p><div>{['pdf', 'png', 'jpg', 'jpeg'].map(ext => <Button kind="secondary" key={ext} disabled={busy} onClick={() => fixture(`sample-evidence.${ext}`)}>{ext.toUpperCase()}</Button>)}</div><a href={`/api/receipt/${config.cases.find((c: any) => c.scenario === 'D')?.caseId}`} download="DecisionTrail-R20.json">Download the R20 signed JSON receipt</a></details>}
+    {!config.productMode && <details className="sample-documents"><summary>Try a committed sample document</summary><p>These synthetic files are acknowledged by receipt R20 and registered on the local chain.</p><div>{['pdf', 'png', 'jpg', 'jpeg'].map(ext => <Button kind="secondary" key={ext} disabled={busy} onClick={() => fixture(`sample-evidence.${ext}`)}>{ext.toUpperCase()}</Button>)}</div><a href={(import.meta.env.VITE_API_URL || '') + `/api/receipt/${config.cases.find((c: any) => c.scenario === 'D')?.caseId}`} download="DecisionTrail-R20.json">Download the R20 signed JSON receipt</a></details>}
     {file && <><div className="selected-artifact"><strong>{file.info.name}</strong><Badge>{file.info.format}</Badge><span>{humanSize(file.info.size)} · {file.info.size.toLocaleString()} bytes</span></div><FilePreview file={file}/><div className="file-fingerprint"><span>SHA-256 · ACTUAL FILE BYTES</span><CopyValue value={file.sha256} full/></div></>}
     {progress && <Progress text={progress}/>}
     {error && <ErrorBox message={`Verification failed. ${error}`}/>}

@@ -8,8 +8,9 @@ export async function startApi(){await initialize();const server=http.createServ
   res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');
   const send=(value:any,status=200)=>{res.statusCode=status;res.end(json(value));};
   try{
-    const origin=req.headers.origin;if(origin&&!['http://localhost:5176','http://127.0.0.1:5176'].includes(origin)){send({error:'Local classic demo access only.'},403);return;}
-    const url=new URL(req.url||'/','http://localhost:3004'),parts=url.pathname.split('/').filter(Boolean);let result:any;
+  if(req.headers.origin){const allowed=['http://localhost:5176','http://127.0.0.1:5176'];if(process.env.FRONTEND_URL)allowed.push(process.env.FRONTEND_URL);if(!allowed.includes(req.headers.origin)){send({error:'Local classic demo access only.'},403);return;}res.setHeader('Access-Control-Allow-Origin',req.headers.origin);}
+  if(req.method==='OPTIONS'){res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');res.setHeader('Access-Control-Allow-Headers','Content-Type');res.statusCode=204;res.end();return;}
+    const url=new URL(req.url||'/',process.env.BACKEND_URL||'http://localhost:3004'),parts=url.pathname.split('/').filter(Boolean);let result:any;
     if(req.method==='GET'&&url.pathname==='/api/config')result=publicConfig();
     else if(req.method==='GET'&&url.pathname==='/api/resolve')result=resolveFile(url.searchParams.get('sha256')||'',url.searchParams.get('caseId')||undefined);
     else if(req.method==='GET'&&url.pathname==='/api/submissions')result=Object.values(data.submissions||{});
@@ -26,5 +27,5 @@ export async function startApi(){await initialize();const server=http.createServ
     else {send({error:'Resource not found.'},404);return;}
     if(!result){send({error:'Receipt not found in this deployment.'},404);return;}send(result);
   }catch(e:any){send({error:e.shortMessage||e.message||'Local registry unavailable.'},503);}
-});await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(ports.api,'127.0.0.1',resolve);});return server;}
+});await new Promise<void>((resolve,reject)=>{server.once('error',reject);const PORT = Number(process.env.PORT) || ports.api;server.listen(PORT,'0.0.0.0',resolve);});return server;}
 
